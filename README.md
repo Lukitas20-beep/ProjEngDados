@@ -16,8 +16,8 @@ A arquitetura do pipeline segue a separação de responsabilidades em três cama
 
 ## 🛠️ Tecnologias e Dependências
 * **Linguagem:** Python 3.14+
-* [cite_start]**Consumo de API:** `requests` 
-* [cite_start]**Banco de Dados Cloud:** `pymongo` e `dnspython` (MongoDB Atlas) 
+* **Consumo de API:** `requests` 
+* **Banco de Dados Cloud:** `pymongo` e `dnspython` (MongoDB Atlas) 
 * **Banco de Dados Local:** `sqlite3`
 
 ## 📁 Estrutura do Repositório
