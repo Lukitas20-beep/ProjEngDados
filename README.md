@@ -79,4 +79,4 @@ data_abertura: Data e hora previstas para a abertura das propostas.
 
 
 
-Desenvolvido por: Lucas Ferreira, Isaac Daniel, Arthur Orange, Antônio, Guilherme
+Desenvolvido por: Lucas Ferreira, Isaac Daniel, Arthur Orange, Antônio, Guilherme, Gabriel Garcia
