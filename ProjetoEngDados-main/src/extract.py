@@ -1,31 +1,30 @@
 import requests
 
-
 class Extract:
     def __init__(self):
-        pass
-        
-        self.url = "https://pncp.gov.br/api/consulta/v1/contratacoes/proposta"
+        # Mudando para o endpoint de editais, que costuma ser mais rápido
+        self.url = "https://pncp.gov.br/api/consulta/v1/editais"
 
-    def extract_contratacoes(self, dataFinal, codigoModalidadeContratacao, uf, pagina, tamanhoPagina):
-
-        #Método responsável por acessar a API do PNCP e retornar os dados de contratações
-
-
+    def extract_contratacoes(self, dataInicial, dataFinal, codigoModalidade, uf, pagina, tamanhoPagina):
         params = {
+            "dataInicial": dataInicial,
             "dataFinal": dataFinal,
-            "codigoModalidadeContratacao": codigoModalidadeContratacao,
-            "uf": uf,
+            "codigoModalidadeContratacao": codigoModalidade,
+            "uf": uf.upper(),
             "pagina": pagina,
             "tamanhoPagina": tamanhoPagina
         }
-
-        response = requests.get(self.url, params=params)
-
-        response.raise_for_status()
-
-        dados = response.json()
-
-        print(dados)
         
-        return dados
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Accept": "application/json"
+        }
+
+        try:
+            # Vamos usar 60 segundos. Se não responder em 1 minuto, a API está offline.
+            response = requests.get(self.url, params=params, headers=headers, timeout=60)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            # Se der erro, retornamos para o Streamlit mostrar
+            return {"error": str(e)}
