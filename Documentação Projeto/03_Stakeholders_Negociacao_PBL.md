@@ -1,4 +1,4 @@
-# Documentação de Mapeamento de Stakeholders e Técnicas de Negociação (PBL)
+# Mapeamento de Stakeholders e Técnicas de Negociação (PBL)
 
 No contexto de projetos de Aprendizagem Baseada em Projetos (PBL), como o "PNCP Data Engine", a identificação e o engajamento eficaz dos *stakeholders* são cruciais para o sucesso e a relevância da solução desenvolvida. Além disso, a capacidade de negociar com diferentes partes interessadas garante que as necessidades e expectativas sejam alinhadas.
 
