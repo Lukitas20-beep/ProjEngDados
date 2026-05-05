@@ -78,7 +78,7 @@ modalidade: Tipo de contratação (ex: Pregão).
 data_abertura: Data e hora previstas para a abertura das propostas.
 
 
-📚 Documentação Adicional do Projeto
+📚 Documentação do Projeto
 
 
 Para uma compreensão mais aprofundada sobre a gestão, metodologia e estratégia do projeto, consulte os documentos detalhados na pasta docs/:
