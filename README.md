@@ -78,5 +78,49 @@ modalidade: Tipo de contratação (ex: Pregão).
 data_abertura: Data e hora previstas para a abertura das propostas.
 
 
+📚 Documentação Adicional do Projeto
+
+
+Para uma compreensão mais aprofundada sobre a gestão, metodologia e estratégia do projeto, consulte os documentos detalhados na pasta docs/:
+
+•	01 - Requisitos, MVP e Metodologia PBL
+
+◦	Levantamento de Requisitos Integrados (Funcionais e Não Funcionais).
+
+◦	Definição do Produto Mínimo Viável (MVP).
+
+◦	Revisão de Escopo e Matriz de Riscos.
+
+◦	Aplicação da Metodologia de Aprendizagem Baseada em Projetos (PBL).
+
+
+•	02 - Comunicação, Feedback e Gestão de Conflitos no Time
+
+◦	Melhores práticas para comunicação eficaz na equipe.
+
+◦	Estratégias para feedback construtivo.
+
+◦	Técnicas para gestão proativa de conflitos.
+
+
+•	03 - Mapeamento de Stakeholders e Técnicas de Negociação (PBL)
+
+◦	Identificação e análise dos stakeholders do projeto.
+
+◦	Estratégias de engajamento baseadas em poder e interesse.
+
+◦	Técnicas de negociação aplicadas no contexto PBL.
+
+
+•	04 - Estratégia de Negócio, UX e Monetização
+
+◦	Ajuste de fluxos com base em estratégias de negócio potenciais.
+
+◦	Revisão de telas-chave (onboarding, paywall, funil de conversão).
+
+◦	Levantamento de hipóteses de monetização para o projeto.
+
+
+
 
 Desenvolvido por: Lucas Ferreira, Isaac Daniel, Arthur Orange, Antônio, Guilherme, Gabriel Garcia, Priscila Maciel e João Lucas Lira
