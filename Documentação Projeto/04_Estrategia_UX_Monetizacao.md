@@ -1,4 +1,4 @@
-# Documentação de Estratégia de Negócio, UX e Monetização
+# Estratégia de Negócio, UX e Monetização
 
 Este documento explora como o projeto "PNCP Data Engine" pode ser alinhado a uma estratégia de negócio, revisa as telas-chave da interface e levanta hipóteses de monetização, considerando uma possível evolução do projeto para um produto ou serviço.
 
