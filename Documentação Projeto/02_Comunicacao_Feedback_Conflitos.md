@@ -1,4 +1,4 @@
-# Documentação de Comunicação, Feedback e Gestão de Conflitos no Time
+# Comunicação, Feedback e Gestão de Conflitos no Time
 
 Em projetos baseados em metodologias ágeis e PBL, a comunicação eficaz, o feedback construtivo e a gestão proativa de conflitos são pilares para o sucesso da equipe. Este documento descreve as práticas recomendadas para o time do "PNCP Data Engine".
 
