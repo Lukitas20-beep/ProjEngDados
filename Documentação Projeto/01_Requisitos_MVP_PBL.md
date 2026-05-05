@@ -1,4 +1,4 @@
-# Documentação de Requisitos, MVP e Metodologia PBL
+# Requisitos, MVP e Metodologia PBL
 
 ## 1. Levantamento de Requisitos Integrados
 
