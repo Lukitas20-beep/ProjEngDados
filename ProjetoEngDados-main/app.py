@@ -28,7 +28,9 @@ if "usuario_logado" not in st.session_state:
 if "dados_limpos" not in st.session_state:
     st.session_state.dados_limpos = None
 
-
+# Camada de governança da pipeline. Foi implementado um sistema de autenticação 
+# (AuthManager) que atua como um gatekeeper, assegurando que apenas usuários autorizados
+#  possam disparar a orquestração de dados e acessar o banco de dados de produção.
 def tela_login():
     st.title("🔐 Acesso ao PNCP Data Engine")
     st.caption("Entre com seu usuário para acessar a busca, o processamento e a carga dos dados.")
@@ -49,6 +51,7 @@ def tela_login():
                 st.rerun()
             else:
                 st.error(mensagem)
+###################################################################################
 
     with aba_cadastro:
         with st.form("form_cadastro"):
@@ -113,6 +116,10 @@ def tela_app():
 
     tela_alterar_senha()
 
+    #Implementação da orquestração da pipeline ETL. O código gerencia a sequência lógica: 
+    #primeiro a Extração (Extract) via API, seguida pela Transformação (Transform) dos dados
+    # brutos em um 
+    #Dataframe estruturado, com tratamento de exceções para garantir a estabilidade do fluxo.
     if st.button("🚀 Buscar e Processar Dados"):
         ext = Extract()
         tra = Transform()
@@ -128,7 +135,11 @@ def tela_app():
                 st.dataframe(pd.DataFrame(st.session_state.dados_limpos))
             else:
                 st.warning("A busca não retornou registros para os filtros informados.")
+    ##################################################################################
 
+    # Fase de Carga (Load) da pipeline. A persistência no MongoDB Atlas é 
+    # orquestrada de forma condicional: o gatilho de carga só é liberado após o 
+    # sucesso das etapas anteriores, garantindo a integridade dos dados enviados para a nuvem.
     if st.session_state.dados_limpos:
         if st.button("💾 Salvar no MongoDB Atlas"):
             uri = os.getenv("MONGO_URI")
@@ -142,6 +153,7 @@ def tela_app():
                 )
                 st.balloons()
                 st.info(msg)
+    #
 
 
 if st.session_state.usuario_logado is None:
