@@ -123,4 +123,4 @@ Para uma compreensão mais aprofundada sobre a gestão, metodologia e estratégi
 
 
 
-Desenvolvido por: Lucas Ferreira, Isaac Daniel, Arthur Orange, Antônio, Guilherme, Gabriel Garcia, Priscila Maciel e João Lucas Lira
+Desenvolvido por: Lucas Ferreira de Vasconcelos Ribeiro, Luan Martins de Souza, Isaac Daniel Alvares Diniz, Antônio Tenório Ferreira de Souza, Arthur Orange Vanderlei de Souza, Pedro André Falcão de Souza, Priscilla Maciel de Lima, João Lucas Santos Lira, Guilherme Chaves Sena
