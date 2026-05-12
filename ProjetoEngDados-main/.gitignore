@@ -1,0 +1,36 @@
+# Ambientes Virtuais
+venv/
+env/
+.env
+.venv
+
+# Python / Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Banco de Dados
+*.db
+*.sqlite3
+contratacoes.db
+
+# Arquivos de Dados e Modelos (Ignorar arquivos pesados gerados localmente)
+*.pkl
+!data/cnae_database.pkl
+Anexo_XI.pdf
+
+
+# IDEs e Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Arquivos do Sistema Operacional
+.DS_Store
+Thumbs.db
+
+# Prefect
+~/.prefect/
+.prefect/
