@@ -28,6 +28,9 @@ if "usuario_logado" not in st.session_state:
 if "dados_limpos" not in st.session_state:
     st.session_state.dados_limpos = None
 
+if "anonimizar_dados" not in st.session_state:
+    st.session_state.anonimizar_dados = True
+
 # Camada de governança da pipeline. Foi implementado um sistema de autenticação 
 # (AuthManager) que atua como um gatekeeper, assegurando que apenas usuários autorizados
 #  possam disparar a orquestração de dados e acessar o banco de dados de produção.
@@ -109,6 +112,13 @@ def tela_app():
         tamanho = st.slider("Qtd. por página", 1, 50, 10)
 
         st.divider()
+        st.session_state.anonimizar_dados = st.checkbox(
+            "Aplicar anonimização antes de salvar",
+            value=st.session_state.anonimizar_dados,
+            help="Mascara ou substitui por hash campos sensíveis identificados antes da persistência."
+        )
+
+        st.divider()
         if st.button("Sair"):
             st.session_state.usuario_logado = None
             st.session_state.dados_limpos = None
@@ -150,6 +160,7 @@ def tela_app():
                 msg = loader.salvar_no_mongo(
                     st.session_state.dados_limpos,
                     f"contratacoes_{uf.lower()}",
+                    anonimizar=st.session_state.anonimizar_dados,
                 )
                 st.balloons()
                 st.info(msg)

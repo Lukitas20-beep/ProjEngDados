@@ -1,5 +1,7 @@
 from pymongo import MongoClient
 
+from src.data_security import anonymize_records
+
 class Load:
     def __init__(self, uri):
         self.client = MongoClient(uri)

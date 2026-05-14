@@ -27,7 +27,7 @@ def task_transform(dados_brutos):
 def task_load(dados_limpos, uf):
     uri = os.getenv("MONGO_URI")
     loader = Load(uri=uri)
-    return loader.salvar_no_mongo(dados_limpos, f"contratacoes_{uf.lower()}")
+    return loader.salvar_no_mongo(dados_limpos, f"contratacoes_{uf.lower()}", anonimizar=True)
 
 # O Fluxo que orquestra tudo
 @flow(name="Pipeline ETL PNCP")

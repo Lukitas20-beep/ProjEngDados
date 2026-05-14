@@ -13,6 +13,8 @@ class Transform:
                 "uf": item.get("unidadeOrgao", {}).get("ufSigla"),
                 "municipio": item.get("unidadeOrgao", {}).get("municipioNome"),
                 "modalidade": item.get("modalidadeNome"),
-                "data_abertura": item.get("dataAberturaProposta")
+                "data_abertura": item.get("dataAberturaProposta"),
+                "fonte_dado": "PNCP",
+                "contém_dado_pessoal": False
             })
         return dados_tratados

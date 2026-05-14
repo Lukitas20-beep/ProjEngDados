@@ -4,11 +4,14 @@ from pathlib import Path
 
 import bcrypt
 
+from src.data_security import set_private_file_permissions
+
 
 class AuthManager:
     def __init__(self, db_path="users.db"):
         self.db_path = Path(db_path)
         self._criar_tabela_usuarios()
+        set_private_file_permissions(self.db_path)
 
     def _conectar(self):
         return sqlite3.connect(self.db_path)
