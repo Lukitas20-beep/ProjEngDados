@@ -1,7 +1,5 @@
 # Entrega 3: Jornada Atual e Jornada Futura - PNCP Data Engine
 
-**Autor:** Manus AI
-**Data:** 19 de maio de 2026
 
 ## 1. Introdução
 
