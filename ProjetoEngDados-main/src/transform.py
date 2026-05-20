@@ -2,7 +2,7 @@ class Transform:
     def processar_contratacoes(self, dados_brutos):
         # A API do PNCP retorna os dados dentro da chave 'data'
         lista = dados_brutos.get("data", [])
-        
+
         dados_tratados = []
         for item in lista:
             dados_tratados.append({
@@ -14,7 +14,8 @@ class Transform:
                 "municipio": item.get("unidadeOrgao", {}).get("municipioNome"),
                 "modalidade": item.get("modalidadeNome"),
                 "data_abertura": item.get("dataAberturaProposta"),
-                "fonte_dado": "PNCP",
-                "contém_dado_pessoal": False
+                "fonte_dado": "PNCP - Portal Nacional de Contratações Públicas",
+                "contem_dado_pessoal": False,
+                "base_legal_tratamento": "Dados públicos administrativos / execução de projeto acadêmico",
             })
         return dados_tratados

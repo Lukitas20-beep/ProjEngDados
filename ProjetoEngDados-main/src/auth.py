@@ -4,17 +4,22 @@ from pathlib import Path
 
 import bcrypt
 
-from src.data_security import set_private_file_permissions
+from src.data_security import restrict_file_permissions
 
 
 class AuthManager:
     def __init__(self, db_path="users.db"):
         self.db_path = Path(db_path)
         self._criar_tabela_usuarios()
-        set_private_file_permissions(self.db_path)
+        restrict_file_permissions(self.db_path)
 
     def _conectar(self):
         return sqlite3.connect(self.db_path)
+
+    def _adicionar_coluna_se_ausente(self, conn, coluna, ddl):
+        colunas = [row[1] for row in conn.execute("PRAGMA table_info(usuarios)").fetchall()]
+        if coluna not in colunas:
+            conn.execute(ddl)
 
     def _criar_tabela_usuarios(self):
         with self._conectar() as conn:
@@ -30,6 +35,16 @@ class AuthManager:
                     atualizado_em TEXT NOT NULL
                 )
                 """
+            )
+            self._adicionar_coluna_se_ausente(
+                conn,
+                "politica_privacidade_aceita_em",
+                "ALTER TABLE usuarios ADD COLUMN politica_privacidade_aceita_em TEXT",
+            )
+            self._adicionar_coluna_se_ausente(
+                conn,
+                "versao_politica_privacidade",
+                "ALTER TABLE usuarios ADD COLUMN versao_politica_privacidade TEXT",
             )
             conn.commit()
 
@@ -69,6 +84,7 @@ class AuthManager:
                     (nome, email, senha_hash, agora, agora),
                 )
                 conn.commit()
+            restrict_file_permissions(self.db_path)
             return True, "Usuário cadastrado com sucesso."
         except sqlite3.IntegrityError:
             return False, "Já existe um usuário cadastrado com este e-mail."
@@ -80,7 +96,9 @@ class AuthManager:
             conn.row_factory = sqlite3.Row
             usuario = conn.execute(
                 """
-                SELECT id, nome, email, senha_hash, ativo
+                SELECT id, nome, email, senha_hash, ativo,
+                       politica_privacidade_aceita_em,
+                       versao_politica_privacidade
                 FROM usuarios
                 WHERE email = ?
                 """,
@@ -100,8 +118,40 @@ class AuthManager:
             "id": usuario["id"],
             "nome": usuario["nome"],
             "email": usuario["email"],
+            "politica_privacidade_aceita_em": usuario["politica_privacidade_aceita_em"],
+            "versao_politica_privacidade": usuario["versao_politica_privacidade"],
         }
         return True, dados_usuario, "Login realizado com sucesso."
+
+    def obter_usuario(self, user_id):
+        with self._conectar() as conn:
+            conn.row_factory = sqlite3.Row
+            usuario = conn.execute(
+                """
+                SELECT id, nome, email, ativo, criado_em, atualizado_em,
+                       politica_privacidade_aceita_em, versao_politica_privacidade
+                FROM usuarios
+                WHERE id = ?
+                """,
+                (user_id,),
+            ).fetchone()
+        return dict(usuario) if usuario else None
+
+    def aceitar_politica_privacidade(self, user_id, versao):
+        agora = datetime.now().isoformat(timespec="seconds")
+        with self._conectar() as conn:
+            conn.execute(
+                """
+                UPDATE usuarios
+                SET politica_privacidade_aceita_em = ?,
+                    versao_politica_privacidade = ?,
+                    atualizado_em = ?
+                WHERE id = ?
+                """,
+                (agora, versao, agora, user_id),
+            )
+            conn.commit()
+        return True, "Política de privacidade aceita."
 
     def alterar_senha(self, user_id, senha_atual, nova_senha):
         with self._conectar() as conn:
@@ -135,6 +185,32 @@ class AuthManager:
             conn.commit()
 
         return True, "Senha alterada com sucesso."
+
+    def exportar_dados_usuario(self, user_id):
+        usuario = self.obter_usuario(user_id)
+        if not usuario:
+            return None
+        return {
+            "id": usuario["id"],
+            "nome": usuario["nome"],
+            "email": usuario["email"],
+            "ativo": bool(usuario["ativo"]),
+            "criado_em": usuario["criado_em"],
+            "atualizado_em": usuario["atualizado_em"],
+            "politica_privacidade_aceita_em": usuario["politica_privacidade_aceita_em"],
+            "versao_politica_privacidade": usuario["versao_politica_privacidade"],
+            "observacao": "A senha original não é armazenada; apenas o hash criptográfico é mantido.",
+        }
+
+    def desativar_usuario(self, user_id):
+        agora = datetime.now().isoformat(timespec="seconds")
+        with self._conectar() as conn:
+            conn.execute(
+                "UPDATE usuarios SET ativo = 0, atualizado_em = ? WHERE id = ?",
+                (agora, user_id),
+            )
+            conn.commit()
+        return True, "Usuário desativado logicamente."
 
     def validar_forca_senha(self, senha):
         if len(senha) < 8:

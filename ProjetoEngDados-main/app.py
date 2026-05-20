@@ -1,15 +1,19 @@
+import json
 import os
-import subprocess
-import threading
 
 import pandas as pd
-import requests
 import streamlit as st
 from dotenv import load_dotenv
 
 from src.auth import AuthManager
-from src.classify import CnaeClassifier
 from src.extract import Extract
+from src.lgpd import (
+    AVISO_PRIVACIDADE,
+    OPERACOES_TRATAMENTO,
+    TIPOS_SOLICITACAO,
+    VERSAO_POLITICA_PRIVACIDADE,
+    LGPDManager,
+)
 from src.load import Load
 from src.transform import Transform
 
@@ -18,6 +22,7 @@ load_dotenv()
 st.set_page_config(page_title="PNCP Data Engine", layout="wide")
 
 auth = AuthManager(db_path=os.getenv("USERS_DB_PATH", "users.db"))
+lgpd = LGPDManager(db_path=os.getenv("LGPD_DB_PATH", "lgpd_requests.db"))
 
 if os.getenv("ADMIN_EMAIL") and os.getenv("ADMIN_PASSWORD"):
     auth.criar_admin_inicial(
@@ -32,12 +37,15 @@ if "usuario_logado" not in st.session_state:
 if "dados_limpos" not in st.session_state:
     st.session_state.dados_limpos = None
 
-if "anonimizar_dados" not in st.session_state:
-    st.session_state.anonimizar_dados = True
 
-# Camada de governança da pipeline. Foi implementado um sistema de autenticação 
-# (AuthManager) que atua como um gatekeeper, assegurando que apenas usuários autorizados
-#  possam disparar a orquestração de dados e acessar o banco de dados de produção.
+def atualizar_usuario_sessao():
+    usuario = auth.obter_usuario(st.session_state.usuario_logado["id"])
+    if usuario:
+        st.session_state.usuario_logado = usuario
+
+
+# Camada de governança da pipeline. O sistema de autenticação atua como gatekeeper,
+# assegurando que apenas usuários autorizados possam disparar a orquestração de dados.
 def tela_login():
     st.title("🔐 Acesso ao PNCP Data Engine")
     st.caption("Entre com seu usuário para acessar a busca, o processamento e a carga dos dados.")
@@ -54,11 +62,11 @@ def tela_login():
             sucesso, usuario, mensagem = auth.autenticar_usuario(email, senha)
             if sucesso:
                 st.session_state.usuario_logado = usuario
+                lgpd.registrar_evento(usuario["id"], usuario["email"], "login_realizado")
                 st.success(mensagem)
                 st.rerun()
             else:
                 st.error(mensagem)
-###################################################################################
 
     with aba_cadastro:
         with st.form("form_cadastro"):
@@ -79,6 +87,45 @@ def tela_login():
                     st.error(mensagem)
 
 
+def tela_aceite_privacidade():
+    usuario = st.session_state.usuario_logado
+    aceite_atual = usuario.get("versao_politica_privacidade") == VERSAO_POLITICA_PRIVACIDADE
+
+    if aceite_atual:
+        return True
+
+    st.warning("Para acessar a aplicação, leia e aceite o aviso de privacidade da versão atual.")
+    st.subheader("Aviso de privacidade e tratamento de dados")
+    st.info(AVISO_PRIVACIDADE)
+
+    with st.form("form_aceite_privacidade"):
+        aceite = st.checkbox("Li e aceito o aviso de privacidade do PNCP Data Engine.")
+        enviar = st.form_submit_button("Aceitar e continuar")
+
+    if enviar:
+        if not aceite:
+            st.error("É necessário confirmar a leitura e aceite do aviso de privacidade.")
+        else:
+            sucesso, mensagem = auth.aceitar_politica_privacidade(
+                usuario["id"],
+                VERSAO_POLITICA_PRIVACIDADE,
+            )
+            if sucesso:
+                lgpd.registrar_evento(
+                    usuario["id"],
+                    usuario["email"],
+                    "politica_privacidade_aceita",
+                    f"Versão {VERSAO_POLITICA_PRIVACIDADE}",
+                )
+                atualizar_usuario_sessao()
+                st.success(mensagem)
+                st.rerun()
+            else:
+                st.error(mensagem)
+
+    return False
+
+
 def tela_alterar_senha():
     with st.expander("Alterar senha"):
         with st.form("form_alterar_senha"):
@@ -97,167 +144,68 @@ def tela_alterar_senha():
                     nova_senha,
                 )
                 if sucesso:
+                    lgpd.registrar_evento(
+                        st.session_state.usuario_logado["id"],
+                        st.session_state.usuario_logado["email"],
+                        "senha_alterada",
+                    )
                     st.success(mensagem)
                 else:
                     st.error(mensagem)
 
 
-def _listar_runs_prefect(limit: int = 8):
-    api_url = os.getenv("PREFECT_API_URL", "")
-    api_key = os.getenv("PREFECT_API_KEY", "")
-    if not api_url or not api_key:
-        return None, "Configure PREFECT_API_URL e PREFECT_API_KEY no .env"
-    try:
-        resp = requests.post(
-            f"{api_url}/flow_runs/filter",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={"limit": limit, "sort": "EXPECTED_START_TIME_DESC"},
-            timeout=10,
+def tela_privacidade_lgpd():
+    usuario = st.session_state.usuario_logado
+
+    with st.expander("Privacidade e LGPD"):
+        st.subheader("Aviso de privacidade")
+        st.write(AVISO_PRIVACIDADE)
+        st.caption(f"Versão vigente: {VERSAO_POLITICA_PRIVACIDADE}")
+
+        st.subheader("Registro simplificado das operações de tratamento")
+        st.dataframe(pd.DataFrame(OPERACOES_TRATAMENTO), use_container_width=True)
+
+        st.download_button(
+            "Baixar registro de tratamento em JSON",
+            data=lgpd.exportar_registro_tratamento_json(),
+            file_name="registro_tratamento_lgpd.json",
+            mime="application/json",
         )
-        resp.raise_for_status()
-        return resp.json(), None
-    except Exception as exc:
-        return None, str(exc)
 
+        st.subheader("Meus dados de cadastro")
+        dados_usuario = auth.exportar_dados_usuario(usuario["id"])
+        st.json(dados_usuario)
+        st.download_button(
+            "Baixar meus dados em JSON",
+            data=json.dumps(dados_usuario, ensure_ascii=False, indent=2),
+            file_name="meus_dados_pncp_data_engine.json",
+            mime="application/json",
+        )
 
-def _disparar_pipeline(uf: str, data_ini: str, data_fim: str):
-    env = {
-        **os.environ,
-        "PIPELINE_UF": uf,
-        "PIPELINE_DATA_INI": data_ini,
-        "PIPELINE_DATA_FIM": data_fim,
-    }
-    cwd = os.path.dirname(os.path.abspath(__file__))
-    threading.Thread(
-        target=lambda: subprocess.run(["python", "pipeline_prefect.py"], env=env, cwd=cwd),
-        daemon=True,
-    ).start()
+        st.subheader("Solicitações do titular")
+        with st.form("form_solicitacao_lgpd"):
+            tipo = st.selectbox("Tipo de solicitação", TIPOS_SOLICITACAO)
+            descricao = st.text_area("Descrição da solicitação", height=100)
+            enviar = st.form_submit_button("Registrar solicitação")
 
-
-def aba_busca(uf, data_ini, data_fim, tamanho):
-    if st.button("🚀 Buscar e Processar Dados"):
-        ext = Extract()
-        tra = Transform()
-        with st.spinner("Acessando PNCP..."):
-            dados = ext.extract_contratacoes(data_ini, data_fim, 8, uf, 1, tamanho)
-
-        if "error" in dados:
-            st.error(dados["error"])
-        else:
-            st.session_state.dados_limpos = tra.processar_contratacoes(dados)
-            if st.session_state.dados_limpos:
-                st.success("Dados prontos!")
-                st.dataframe(pd.DataFrame(st.session_state.dados_limpos))
+        if enviar:
+            sucesso, mensagem = lgpd.registrar_solicitacao(
+                usuario["id"],
+                usuario["email"],
+                tipo,
+                descricao,
+            )
+            if sucesso:
+                lgpd.registrar_evento(usuario["id"], usuario["email"], "solicitacao_titular_registrada", tipo)
+                st.success(mensagem)
             else:
-                st.warning("A busca não retornou registros para os filtros informados.")
+                st.error(mensagem)
 
-    if st.session_state.dados_limpos:
-        if st.button("💾 Salvar no MongoDB Atlas"):
-            uri = os.getenv("MONGO_URI")
-            if not uri:
-                st.error("Configure a variável de ambiente MONGO_URI antes de salvar no MongoDB.")
-            else:
-                loader = Load(uri=uri)
-                msg = loader.salvar_no_mongo(
-                    st.session_state.dados_limpos,
-                    f"contratacoes_{uf.lower()}",
-                    anonimizar=st.session_state.anonimizar_dados,
-                )
-                st.balloons()
-                st.info(msg)
-
-
-def aba_classificador():
-    st.subheader("Classificador CNAE com IA")
-    st.caption("Usa o modelo LLaMA 3 (Groq) para identificar o código CNAE de um objeto de licitação.")
-
-    groq_key = os.getenv("GROQ_API_KEY", "")
-    if not groq_key:
-        st.error("Variável de ambiente GROQ_API_KEY não configurada.")
-        return
-
-    objeto = st.text_area("Objeto da licitação", placeholder="Ex: Contratação de empresa para fornecimento de refeições...")
-
-    if st.button("🤖 Classificar CNAE"):
-        if not objeto.strip():
-            st.warning("Informe o objeto da licitação.")
+        solicitacoes = lgpd.listar_solicitacoes_usuario(usuario["id"])
+        if solicitacoes:
+            st.dataframe(pd.DataFrame(solicitacoes), use_container_width=True)
         else:
-            with st.spinner("Classificando via Groq LLaMA..."):
-                classifier = CnaeClassifier(api_key=groq_key)
-                resultado = classifier.classificar(objeto)
-            st.success("Classificação concluída!")
-            st.metric("CNAE Identificado", resultado["cnae_classificado"])
-
-    if st.session_state.dados_limpos:
-        st.divider()
-        st.subheader("Classificar dados já carregados em lote")
-        st.caption(f"{len(st.session_state.dados_limpos)} registros disponíveis na sessão atual.")
-
-        if st.button("🔁 Classificar todos em lote"):
-            with st.spinner("Classificando todos os registros via Groq..."):
-                classifier = CnaeClassifier(api_key=groq_key)
-                dados_classificados = classifier.classificar_lote(st.session_state.dados_limpos)
-            st.session_state.dados_limpos = dados_classificados
-            st.success("Lote classificado! Dados atualizados na sessão.")
-            st.dataframe(pd.DataFrame(dados_classificados))
-
-
-def aba_pipeline(uf, data_ini, data_fim):
-    st.subheader("Pipeline DataOps — Prefect Cloud")
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        ok = bool(os.getenv("PREFECT_API_KEY"))
-        st.metric("Prefect Cloud", "✅ Configurado" if ok else "❌ Não configurado")
-    with col2:
-        ok = bool(os.getenv("GROQ_API_KEY"))
-        st.metric("Groq API", "✅ Configurado" if ok else "❌ Não configurado")
-    with col3:
-        ok = bool(os.getenv("MONGO_URI"))
-        st.metric("MongoDB Atlas", "✅ Configurado" if ok else "❌ Não configurado")
-
-    st.divider()
-    st.subheader("Disparar Pipeline")
-    st.caption("Executa o fluxo Prefect localmente e envia os logs para o Prefect Cloud.")
-
-    col_uf, col_ini, col_fim = st.columns(3)
-    pipe_uf = col_uf.text_input("UF", uf, key="pipe_uf")
-    pipe_ini = col_ini.text_input("Data Inicial", data_ini, key="pipe_ini")
-    pipe_fim = col_fim.text_input("Data Final", data_fim, key="pipe_fim")
-
-    if st.button("▶ Disparar Pipeline"):
-        _disparar_pipeline(pipe_uf.upper(), pipe_ini, pipe_fim)
-        st.success("Pipeline iniciado em background. Acompanhe o progresso no Prefect Cloud.")
-
-    st.divider()
-    st.subheader("Runs Recentes no Prefect Cloud")
-
-    if st.button("🔄 Atualizar Runs"):
-        runs, erro = _listar_runs_prefect()
-        if erro:
-            st.error(erro)
-        elif not runs:
-            st.info("Nenhum run encontrado.")
-        else:
-            STATUS_EMOJI = {
-                "COMPLETED": "✅",
-                "RUNNING": "🔄",
-                "FAILED": "❌",
-                "CRASHED": "💥",
-                "CANCELLED": "⛔",
-                "PENDING": "⏳",
-                "SCHEDULED": "📅",
-            }
-            rows = [
-                {
-                    "Status": f"{STATUS_EMOJI.get(r.get('state_type', ''), '❓')} {r.get('state_type', 'N/A')}",
-                    "Nome do Run": r.get("name", "—"),
-                    "Início": r.get("start_time", r.get("expected_start_time", "—"))[:19] if r.get("start_time") or r.get("expected_start_time") else "—",
-                    "Total de Runs": "",
-                }
-                for r in runs
-            ]
-            st.dataframe(pd.DataFrame(rows).drop(columns=["Total de Runs"]), use_container_width=True)
+            st.caption("Nenhuma solicitação registrada para este usuário.")
 
 
 def tela_app():
@@ -274,37 +222,61 @@ def tela_app():
         tamanho = st.slider("Qtd. por página", 1, 50, 10)
 
         st.divider()
-        st.session_state.anonimizar_dados = st.checkbox(
-            "Aplicar anonimização antes de salvar",
-            value=st.session_state.anonimizar_dados,
-            help="Mascara ou substitui por hash campos sensíveis identificados antes da persistência."
-        )
+        aplicar_anonimizacao = st.checkbox("Aplicar anonimização antes de salvar", value=True)
+        st.caption("Recomendado para atender aos princípios de minimização, segurança e prevenção.")
 
         st.divider()
         if st.button("Sair"):
+            lgpd.registrar_evento(usuario["id"], usuario["email"], "logout_realizado")
             st.session_state.usuario_logado = None
             st.session_state.dados_limpos = None
             st.rerun()
 
     tela_alterar_senha()
+    tela_privacidade_lgpd()
 
-    tab_busca, tab_cnae, tab_pipeline = st.tabs([
-        "🔍 Busca PNCP",
-        "🤖 Classificador CNAE",
-        "🔁 Pipeline DataOps",
-    ])
+    # Implementação da orquestração da pipeline ETL.
+    if st.button("🚀 Buscar e Processar Dados"):
+        ext = Extract()
+        tra = Transform()
+        with st.spinner("Acessando PNCP..."):
+            dados = ext.extract_contratacoes(data_ini, data_fim, 8, uf, 1, tamanho)
 
-    with tab_busca:
-        aba_busca(uf, data_ini, data_fim, tamanho)
+        if "error" in dados:
+            st.error(dados["error"])
+        else:
+            st.session_state.dados_limpos = tra.processar_contratacoes(dados)
+            if st.session_state.dados_limpos:
+                lgpd.registrar_evento(usuario["id"], usuario["email"], "dados_pncp_processados", f"UF={uf}")
+                st.success("Dados prontos!")
+                st.dataframe(pd.DataFrame(st.session_state.dados_limpos))
+            else:
+                st.warning("A busca não retornou registros para os filtros informados.")
 
-    with tab_cnae:
-        aba_classificador()
-
-    with tab_pipeline:
-        aba_pipeline(uf, data_ini, data_fim)
+    # Fase de Carga (Load) da pipeline.
+    if st.session_state.dados_limpos:
+        if st.button("💾 Salvar no MongoDB Atlas"):
+            uri = os.getenv("MONGO_URI")
+            if not uri:
+                st.error("Configure a variável de ambiente MONGO_URI antes de salvar no MongoDB.")
+            else:
+                loader = Load(uri=uri)
+                msg = loader.salvar_no_mongo(
+                    st.session_state.dados_limpos,
+                    f"contratacoes_{uf.lower()}",
+                    aplicar_anonimizacao=aplicar_anonimizacao,
+                )
+                lgpd.registrar_evento(
+                    usuario["id"],
+                    usuario["email"],
+                    "dados_salvos_mongodb",
+                    f"Coleção=contratacoes_{uf.lower()}, anonimização={aplicar_anonimizacao}",
+                )
+                st.balloons()
+                st.info(msg)
 
 
 if st.session_state.usuario_logado is None:
     tela_login()
-else:
+elif tela_aceite_privacidade():
     tela_app()
