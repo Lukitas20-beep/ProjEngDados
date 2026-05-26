@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  consumer:
+    build: .
+    restart: always
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - MONGO_URI=${MONGO_URI}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    command: python src/consumer.py
+
+  producer_scheduler:
+    build: .
+    restart: always
+    depends_on:
+      - kafka
+      - prefect-server
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - PYTHONPATH=/app
+      - PREFECT_API_URL=http://prefect-server:4200/api
+      - PREFECT_API_KEY=
+      - PYTHONUNBUFFERED=1
+    # The producer uses prefect for scheduling, executing every 60 seconds
+    command: /bin/sh -c "while true; do python src/producer.py; sleep 60; done"
+
+  prefect-server:
+    build: .
+    ports:
+      - "4200:4200"
+    environment:
+      - PREFECT_SERVER_API_HOST=0.0.0.0
+      - PREFECT_API_URL=http://127.0.0.1:4200/api
+      - PREFECT_API_KEY=
+    command: prefect server start
+
+  spark-job:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    profiles:
+      - donotstart
+    environment:
+      - MONGO_URI=${MONGO_URI}

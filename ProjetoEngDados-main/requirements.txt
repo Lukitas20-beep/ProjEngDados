@@ -1,0 +1,14 @@
+streamlit
+pandas
+requests
+pymongo
+bcrypt
+python-dotenv
+prefect
+kafka-python
+pydantic
+groq
+pyspark==3.5.1
+pymongo
+python-dotenv
+certifi
