@@ -15,6 +15,7 @@ from src.lgpd import (
     LGPDManager,
 )
 from src.load import Load
+from src.security import SecurityManager
 from src.transform import Transform
 
 load_dotenv()
@@ -23,6 +24,7 @@ st.set_page_config(page_title="PNCP Data Engine", layout="wide")
 
 auth = AuthManager(db_path=os.getenv("USERS_DB_PATH", "users.db"))
 lgpd = LGPDManager(db_path=os.getenv("LGPD_DB_PATH", "lgpd_requests.db"))
+security = SecurityManager(db_path=os.getenv("SECURITY_DB_PATH", "security_events.db"))
 
 if os.getenv("ADMIN_EMAIL") and os.getenv("ADMIN_PASSWORD"):
     auth.criar_admin_inicial(
@@ -59,14 +61,26 @@ def tela_login():
             enviar = st.form_submit_button("Entrar")
 
         if enviar:
-            sucesso, usuario, mensagem = auth.autenticar_usuario(email, senha)
-            if sucesso:
-                st.session_state.usuario_logado = usuario
-                lgpd.registrar_evento(usuario["id"], usuario["email"], "login_realizado")
-                st.success(mensagem)
-                st.rerun()
+            bloqueado, mensagem_bloqueio = security.login_bloqueado(email)
+            if bloqueado:
+                security.registrar_evento(
+                    "login_bloqueado",
+                    mensagem_bloqueio,
+                    "WARNING",
+                    email=email,
+                )
+                st.error(mensagem_bloqueio)
             else:
-                st.error(mensagem)
+                sucesso, usuario, mensagem = auth.autenticar_usuario(email, senha)
+                if sucesso:
+                    security.registrar_login_sucesso(email, user_id=usuario["id"])
+                    st.session_state.usuario_logado = usuario
+                    lgpd.registrar_evento(usuario["id"], usuario["email"], "login_realizado")
+                    st.success(mensagem)
+                    st.rerun()
+                else:
+                    security.registrar_tentativa_login(email, False, mensagem)
+                    st.error(mensagem)
 
     with aba_cadastro:
         with st.form("form_cadastro"):
@@ -208,6 +222,60 @@ def tela_privacidade_lgpd():
             st.caption("Nenhuma solicitação registrada para este usuário.")
 
 
+def tela_seguranca_disponibilidade():
+    usuario = st.session_state.usuario_logado
+
+    with st.expander("Segurança e disponibilidade"):
+        st.subheader("Controles implementados")
+        st.write(
+            "A aplicação usa limitação de tentativas de login, bloqueio temporário, "
+            "validação de entradas, sanitização de nomes de coleção, timeouts, retentativas "
+            "e registros locais de eventos de segurança."
+        )
+
+        st.subheader("Parâmetros de segurança")
+        st.json({
+            "MAX_LOGIN_ATTEMPTS": security.max_login_attempts,
+            "LOGIN_LOCKOUT_MINUTES": security.lockout_minutes,
+            "MAX_DATE_RANGE_DAYS": os.getenv("MAX_DATE_RANGE_DAYS", "31"),
+            "REQUEST_TIMEOUT_SECONDS": os.getenv("REQUEST_TIMEOUT_SECONDS", "20"),
+            "REQUEST_MAX_RETRIES": os.getenv("REQUEST_MAX_RETRIES", "3"),
+        })
+
+        st.subheader("Saúde do ambiente")
+        ambiente = security.checar_ambiente()
+        st.dataframe(pd.DataFrame([{"item": k, "status": v} for k, v in ambiente.items()]), use_container_width=True)
+
+        if st.button("Verificar disponibilidade dos serviços", key="btn_healthcheck"):
+            ok_pncp, msg_pncp = security.checar_api_pncp()
+            ok_mongo, msg_mongo = security.checar_mongodb(os.getenv("MONGO_URI"))
+
+            if ok_pncp:
+                st.success(msg_pncp)
+            else:
+                st.error(msg_pncp)
+
+            if ok_mongo:
+                st.success(msg_mongo)
+            else:
+                st.warning(msg_mongo)
+
+            security.registrar_evento(
+                "healthcheck_executado",
+                f"PNCP={ok_pncp}; MongoDB={ok_mongo}",
+                "INFO",
+                user_id=usuario["id"],
+                email=usuario["email"],
+            )
+
+        st.subheader("Eventos recentes de segurança")
+        eventos = security.listar_eventos_recentes(limite=30)
+        if eventos:
+            st.dataframe(pd.DataFrame(eventos), use_container_width=True)
+        else:
+            st.caption("Nenhum evento de segurança registrado até o momento.")
+
+
 def tela_app():
     usuario = st.session_state.usuario_logado
 
@@ -234,24 +302,53 @@ def tela_app():
 
     tela_alterar_senha()
     tela_privacidade_lgpd()
+    tela_seguranca_disponibilidade()
 
     # Implementação da orquestração da pipeline ETL.
     if st.button("🚀 Buscar e Processar Dados"):
-        ext = Extract()
-        tra = Transform()
-        with st.spinner("Acessando PNCP..."):
-            dados = ext.extract_contratacoes(data_ini, data_fim, 8, uf, 1, tamanho)
+        ok_uf, msg_uf, uf_validada = security.validar_uf(uf)
+        ok_datas, msg_datas = security.validar_intervalo_datas(data_ini, data_fim)
+        ok_tamanho, msg_tamanho, tamanho_validado = security.validar_tamanho_pagina(tamanho)
 
-        if "error" in dados:
-            st.error(dados["error"])
+        if not ok_uf:
+            security.registrar_evento("entrada_invalida", msg_uf, "WARNING", user_id=usuario["id"], email=usuario["email"])
+            st.error(msg_uf)
+        elif not ok_datas:
+            security.registrar_evento("entrada_invalida", msg_datas, "WARNING", user_id=usuario["id"], email=usuario["email"])
+            st.error(msg_datas)
+        elif not ok_tamanho:
+            security.registrar_evento("entrada_invalida", msg_tamanho, "WARNING", user_id=usuario["id"], email=usuario["email"])
+            st.error(msg_tamanho)
         else:
-            st.session_state.dados_limpos = tra.processar_contratacoes(dados)
-            if st.session_state.dados_limpos:
-                lgpd.registrar_evento(usuario["id"], usuario["email"], "dados_pncp_processados", f"UF={uf}")
-                st.success("Dados prontos!")
-                st.dataframe(pd.DataFrame(st.session_state.dados_limpos))
+            ext = Extract()
+            tra = Transform()
+            with st.spinner("Acessando PNCP..."):
+                dados = ext.extract_contratacoes(data_ini, data_fim, 8, uf_validada, 1, tamanho_validado)
+
+            if "error" in dados:
+                security.registrar_evento(
+                    "falha_consulta_pncp",
+                    dados["error"],
+                    "ERROR",
+                    user_id=usuario["id"],
+                    email=usuario["email"],
+                )
+                st.error(dados["error"])
             else:
-                st.warning("A busca não retornou registros para os filtros informados.")
+                st.session_state.dados_limpos = tra.processar_contratacoes(dados)
+                if st.session_state.dados_limpos:
+                    security.registrar_evento(
+                        "consulta_pncp_sucesso",
+                        f"UF={uf_validada}; registros={len(st.session_state.dados_limpos)}",
+                        "INFO",
+                        user_id=usuario["id"],
+                        email=usuario["email"],
+                    )
+                    lgpd.registrar_evento(usuario["id"], usuario["email"], "dados_pncp_processados", f"UF={uf_validada}")
+                    st.success("Dados prontos!")
+                    st.dataframe(pd.DataFrame(st.session_state.dados_limpos))
+                else:
+                    st.warning("A busca não retornou registros para os filtros informados.")
 
     # Fase de Carga (Load) da pipeline.
     if st.session_state.dados_limpos:
@@ -261,16 +358,24 @@ def tela_app():
                 st.error("Configure a variável de ambiente MONGO_URI antes de salvar no MongoDB.")
             else:
                 loader = Load(uri=uri)
+                colecao_segura = security.sanitizar_nome_colecao(f"contratacoes_{uf.lower()}")
                 msg = loader.salvar_no_mongo(
                     st.session_state.dados_limpos,
-                    f"contratacoes_{uf.lower()}",
+                    colecao_segura,
                     aplicar_anonimizacao=aplicar_anonimizacao,
+                )
+                security.registrar_evento(
+                    "carga_mongodb_executada",
+                    f"Coleção={colecao_segura}; anonimização={aplicar_anonimizacao}",
+                    "INFO",
+                    user_id=usuario["id"],
+                    email=usuario["email"],
                 )
                 lgpd.registrar_evento(
                     usuario["id"],
                     usuario["email"],
                     "dados_salvos_mongodb",
-                    f"Coleção=contratacoes_{uf.lower()}, anonimização={aplicar_anonimizacao}",
+                    f"Coleção={colecao_segura}, anonimização={aplicar_anonimizacao}",
                 )
                 st.balloons()
                 st.info(msg)
