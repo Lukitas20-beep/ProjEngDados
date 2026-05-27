@@ -145,7 +145,20 @@ class SecurityManager:
             )
         return False, ""
 
+    def limpar_tentativas_falhas(self, email: str) -> None:
+        email_normalizado = self.normalizar_email(email)
+        with self._conectar() as conn:
+            conn.execute(
+                """
+                DELETE FROM login_attempts
+                WHERE email = ? AND sucesso = 0
+                """,
+                (email_normalizado,),
+            )
+            conn.commit()
+
     def registrar_login_sucesso(self, email: str, user_id: Optional[int] = None) -> None:
+        self.limpar_tentativas_falhas(email)
         self.registrar_tentativa_login(email, True, "Login bem-sucedido")
         self.registrar_evento("login_sucesso", "Usuário autenticado", "INFO", user_id=user_id, email=email)
 
