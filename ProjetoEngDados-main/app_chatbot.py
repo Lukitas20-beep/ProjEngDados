@@ -24,8 +24,7 @@ if user_input := st.chat_input("Ex: Quais editais existem para o CNAE 56.10-1-00
     with st.chat_message("user"):
         st.write(user_input)
 
-    # Inicializa o cliente do Groq com a chave direta
-    groq_client = Groq(api_key="ApiGrokKeyInsiraAqui")
+    groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
     with st.chat_message("assistant"):
         with st.spinner("Pensando e consultando servidor MCP..."):

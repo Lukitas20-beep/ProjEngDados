@@ -1,30 +1,43 @@
 import os
 from dotenv import load_dotenv
 
-# Sem isso o prefect não vamos conseguir rodar o teste (Não apaguem)
 load_dotenv()
-os.environ["PREFECT_API_URL"] = ""
-os.environ["PREFECT_API_KEY"] = ""
 
 import time
 from prefect import task, flow
 from groq import Groq
+from src.extract import Extract
 
-# Task 1: Ingestão de Dados (Contingência API PNCP)
+# Task 1: Ingestão de Dados via API PNCP
 @task(name="Extrair Dados PNCP")
 def task_extract(uf):
-    print("API Governamental instável - Ativando Payload de Contingência.")
-    return {
-        "data": [
-            {
-                "id": "99999",
-                "orgao": "PREFEITURA MUNICIPAL DE RECIFE",
-                "objeto": "Contratação de empresa especializada no fornecimento de refeições e serviços de buffet para eventos institucionais.",
-                "valor": 45000.00,
-                "uf": uf
-            }
-        ]
-    }
+    from datetime import date, timedelta
+    extractor = Extract()
+    hoje = date.today()
+    data_final = hoje.strftime("%Y%m%d")
+    data_inicial = (hoje - timedelta(days=30)).strftime("%Y%m%d")
+    resultado = extractor.extract_contratacoes(
+        dataInicial=data_inicial,
+        dataFinal=data_final,
+        codigoModalidade=6,
+        uf=uf,
+        pagina=1,
+        tamanhoPagina=10,
+    )
+    if "error" in resultado:
+        print(f"API PNCP indisponível: {resultado['error']} — ativando payload de contingência.")
+        return {
+            "data": [
+                {
+                    "id": "99999",
+                    "orgao": "PREFEITURA MUNICIPAL DE RECIFE",
+                    "objeto": "Contratação de empresa especializada no fornecimento de refeições e serviços de buffet para eventos institucionais.",
+                    "valor": 45000.00,
+                    "uf": uf,
+                }
+            ]
+        }
+    return resultado
 
 # Task 2: Transformação e Classificação Real com Groq (Llama3-8b-Instant)
 @task(name="Classificar CNAE com Groq API")
