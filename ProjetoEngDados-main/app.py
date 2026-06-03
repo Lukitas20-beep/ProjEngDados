@@ -6,6 +6,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from src.auth import AuthManager
+from src.backup import BackupManager
 from src.extract import Extract
 from src.lgpd import (
     AVISO_PRIVACIDADE,
@@ -25,6 +26,7 @@ st.set_page_config(page_title="PNCP Data Engine", layout="wide")
 auth = AuthManager(db_path=os.getenv("USERS_DB_PATH", "users.db"))
 lgpd = LGPDManager(db_path=os.getenv("LGPD_DB_PATH", "lgpd_requests.db"))
 security = SecurityManager(db_path=os.getenv("SECURITY_DB_PATH", "security_events.db"))
+backup = BackupManager(backup_dir=os.getenv("BACKUP_DIR", "backups"))
 
 if os.getenv("ADMIN_EMAIL") and os.getenv("ADMIN_PASSWORD"):
     auth.criar_admin_inicial(
@@ -274,6 +276,154 @@ def tela_seguranca_disponibilidade():
             st.dataframe(pd.DataFrame(eventos), use_container_width=True)
         else:
             st.caption("Nenhum evento de segurança registrado até o momento.")
+
+
+
+def tela_backup_continuidade():
+    usuario = st.session_state.usuario_logado
+
+    with st.expander("Backup e continuidade de operação"):
+        st.subheader("Plano operacional")
+        st.write(
+            "Esta área permite criar backups locais dos bancos SQLite do projeto, "
+            "verificar a integridade dos pacotes gerados, restaurar bancos locais de forma controlada "
+            "e consultar um diagnóstico simples de continuidade da operação."
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Criar backup dos bancos locais", key="btn_backup_sqlite"):
+                zip_path, manifest = backup.criar_backup_sqlite()
+                security.registrar_evento(
+                    "backup_sqlite_criado",
+                    f"Arquivo={zip_path.name}; status={manifest.get('status')}",
+                    "INFO",
+                    user_id=usuario["id"],
+                    email=usuario["email"],
+                )
+                lgpd.registrar_evento(usuario["id"], usuario["email"], "backup_sqlite_criado", zip_path.name)
+                if manifest.get("status") == "concluido":
+                    st.success(f"Backup criado: {zip_path.name}")
+                else:
+                    st.warning(f"Backup criado com observações: {zip_path.name}")
+                st.json(manifest)
+
+        with col2:
+            if st.button("Aplicar política de retenção", key="btn_retencao_backup"):
+                resultado_retencao = backup.aplicar_retencao()
+                security.registrar_evento(
+                    "retencao_backup_aplicada",
+                    json.dumps(resultado_retencao, ensure_ascii=False),
+                    "INFO",
+                    user_id=usuario["id"],
+                    email=usuario["email"],
+                )
+                st.info(f"Retenção aplicada. Backups removidos: {resultado_retencao['total_removido']}")
+                st.json(resultado_retencao)
+
+        st.subheader("Backup opcional do MongoDB")
+        with st.form("form_backup_mongo"):
+            mongo_database = st.text_input("Database MongoDB", value="projeto_pncp")
+            mongo_colecao = st.text_input("Coleção MongoDB", value="contratacoes")
+            mongo_limite = st.number_input("Limite de documentos exportados", min_value=1, max_value=100000, value=10000, step=100)
+            exportar_mongo = st.form_submit_button("Exportar coleção MongoDB em JSONL")
+
+        if exportar_mongo:
+            sucesso_mongo, mensagem_mongo, caminho_mongo = backup.exportar_mongodb_jsonl(
+                os.getenv("MONGO_URI"),
+                database=mongo_database,
+                colecao=security.sanitizar_nome_colecao(mongo_colecao),
+                limite=int(mongo_limite),
+            )
+            security.registrar_evento(
+                "backup_mongodb_executado" if sucesso_mongo else "backup_mongodb_falhou",
+                mensagem_mongo,
+                "INFO" if sucesso_mongo else "ERROR",
+                user_id=usuario["id"],
+                email=usuario["email"],
+            )
+            if sucesso_mongo:
+                st.success(mensagem_mongo)
+                st.caption(f"Arquivo: {caminho_mongo}")
+            else:
+                st.error(mensagem_mongo)
+
+        st.subheader("Backups disponíveis")
+        backups_disponiveis = backup.listar_backups()
+        if backups_disponiveis:
+            resumo_backups = [
+                {
+                    "arquivo": item["arquivo"],
+                    "tamanho_bytes": item["tamanho_bytes"],
+                    "modificado_em": item["modificado_em"],
+                    "tipo": (item.get("manifesto") or {}).get("tipo"),
+                    "status": (item.get("manifesto") or {}).get("status", "n/a"),
+                }
+                for item in backups_disponiveis
+            ]
+            st.dataframe(pd.DataFrame(resumo_backups), use_container_width=True)
+
+            nomes_backup = [item["arquivo"] for item in backups_disponiveis]
+            backup_escolhido = st.selectbox("Selecionar backup para verificação/restauração", nomes_backup)
+            caminho_escolhido = next(item["caminho"] for item in backups_disponiveis if item["arquivo"] == backup_escolhido)
+
+            col_verificar, col_restaurar = st.columns(2)
+            with col_verificar:
+                if st.button("Verificar integridade do backup", key="btn_verificar_backup"):
+                    ok_backup, resultado_verificacao = backup.verificar_backup(caminho_escolhido)
+                    security.registrar_evento(
+                        "backup_verificado",
+                        f"Arquivo={backup_escolhido}; valido={ok_backup}",
+                        "INFO" if ok_backup else "WARNING",
+                        user_id=usuario["id"],
+                        email=usuario["email"],
+                    )
+                    if ok_backup:
+                        st.success("Backup válido.")
+                    else:
+                        st.error("Backup inválido ou incompleto.")
+                    st.json(resultado_verificacao)
+
+            with col_restaurar:
+                banco_restaurar = st.selectbox(
+                    "Banco local para restauração",
+                    ["usuarios", "lgpd", "seguranca", "contratacoes"],
+                    key="select_banco_restore",
+                )
+                confirmar_restore = st.checkbox(
+                    "Confirmo que desejo restaurar o banco selecionado a partir deste backup.",
+                    key="check_confirmar_restore",
+                )
+                if st.button("Restaurar banco local", key="btn_restaurar_backup"):
+                    if not confirmar_restore:
+                        st.warning("Marque a confirmação antes de restaurar.")
+                    else:
+                        ok_restore, msg_restore = backup.restaurar_sqlite(caminho_escolhido, banco_restaurar)
+                        security.registrar_evento(
+                            "backup_restaurado" if ok_restore else "backup_restore_falhou",
+                            msg_restore,
+                            "INFO" if ok_restore else "ERROR",
+                            user_id=usuario["id"],
+                            email=usuario["email"],
+                        )
+                        if ok_restore:
+                            st.success(msg_restore)
+                        else:
+                            st.error(msg_restore)
+        else:
+            st.caption("Nenhum backup ZIP encontrado até o momento.")
+
+        st.subheader("Diagnóstico de continuidade")
+        if st.button("Verificar continuidade operacional", key="btn_continuidade"):
+            status_continuidade = backup.checar_continuidade()
+            security.registrar_evento(
+                "continuidade_verificada",
+                f"backups={status_continuidade.get('total_backups_zip')}",
+                "INFO",
+                user_id=usuario["id"],
+                email=usuario["email"],
+            )
+            st.json(status_continuidade)
 
 
 def tela_app():
