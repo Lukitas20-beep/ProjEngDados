@@ -18,6 +18,11 @@ from src.lgpd import (
 from src.load import Load
 from src.security import SecurityManager
 from src.transform import Transform
+from src.vendor_management import (
+    CRITERIOS_AVALIACAO,
+    STATUS_AVALIACAO,
+    VendorManager,
+)
 
 load_dotenv()
 
@@ -27,6 +32,8 @@ auth = AuthManager(db_path=os.getenv("USERS_DB_PATH", "users.db"))
 lgpd = LGPDManager(db_path=os.getenv("LGPD_DB_PATH", "lgpd_requests.db"))
 security = SecurityManager(db_path=os.getenv("SECURITY_DB_PATH", "security_events.db"))
 backup = BackupManager(backup_dir=os.getenv("BACKUP_DIR", "backups"))
+vendor_manager = VendorManager(db_path=os.getenv("VENDOR_DB_PATH", "vendors.db"))
+vendor_manager.inicializar_fornecedores_padrao()
 
 if os.getenv("ADMIN_EMAIL") and os.getenv("ADMIN_PASSWORD"):
     auth.criar_admin_inicial(
@@ -426,6 +433,79 @@ def tela_backup_continuidade():
             st.json(status_continuidade)
 
 
+
+def tela_gestao_fornecedores():
+    usuario = st.session_state.usuario_logado
+
+    with st.expander("Gestão de fornecedores"):
+        st.subheader("Inventário de fornecedores e componentes externos")
+        st.write(
+            "Esta área documenta fornecedores, APIs, serviços em nuvem, bibliotecas e componentes "
+            "externos utilizados pelo PNCP Data Engine, com indicação de finalidade, dados tratados, "
+            "criticidade, riscos e medidas de mitigação."
+        )
+
+        fornecedores = vendor_manager.listar_fornecedores()
+        if fornecedores:
+            st.dataframe(pd.DataFrame(fornecedores), use_container_width=True)
+            st.download_button(
+                "Baixar inventário de fornecedores em JSON",
+                data=vendor_manager.exportar_inventario_json(),
+                file_name="inventario_fornecedores_pncp_data_engine.json",
+                mime="application/json",
+            )
+        else:
+            st.warning("Nenhum fornecedor cadastrado no inventário.")
+
+        st.subheader("Resumo de criticidade")
+        resumo = vendor_manager.resumo_riscos()
+        if resumo:
+            st.dataframe(pd.DataFrame(resumo), use_container_width=True)
+
+        st.subheader("Checagem de variáveis de ambiente por fornecedor")
+        configuracoes = vendor_manager.checar_configuracoes_ambiente()
+        st.dataframe(pd.DataFrame(configuracoes), use_container_width=True)
+
+        st.subheader("Registrar avaliação de fornecedor")
+        if fornecedores:
+            nomes = [item["nome"] for item in fornecedores]
+            with st.form("form_avaliacao_fornecedor"):
+                nome_fornecedor = st.selectbox("Fornecedor/componente", nomes)
+                criterio = st.selectbox("Critério", CRITERIOS_AVALIACAO)
+                status = st.selectbox("Status", STATUS_AVALIACAO)
+                observacao = st.text_area("Observação", height=90)
+                registrar = st.form_submit_button("Registrar avaliação")
+
+            if registrar:
+                fornecedor = vendor_manager.obter_fornecedor_por_nome(nome_fornecedor)
+                sucesso, mensagem = vendor_manager.registrar_avaliacao(
+                    fornecedor_id=fornecedor["id"],
+                    criterio=criterio,
+                    status=status,
+                    observacao=observacao,
+                    avaliado_por=usuario["email"],
+                )
+                security.registrar_evento(
+                    "avaliacao_fornecedor_registrada" if sucesso else "avaliacao_fornecedor_falhou",
+                    f"Fornecedor={nome_fornecedor}; critério={criterio}; status={status}",
+                    "INFO" if sucesso else "WARNING",
+                    user_id=usuario["id"],
+                    email=usuario["email"],
+                )
+                if sucesso:
+                    lgpd.registrar_evento(usuario["id"], usuario["email"], "avaliacao_fornecedor_registrada", nome_fornecedor)
+                    st.success(mensagem)
+                else:
+                    st.error(mensagem)
+
+        st.subheader("Avaliações recentes")
+        avaliacoes = vendor_manager.listar_avaliacoes(limite=50)
+        if avaliacoes:
+            st.dataframe(pd.DataFrame(avaliacoes), use_container_width=True)
+        else:
+            st.caption("Nenhuma avaliação de fornecedor registrada até o momento.")
+
+
 def tela_app():
     usuario = st.session_state.usuario_logado
 
@@ -453,6 +533,8 @@ def tela_app():
     tela_alterar_senha()
     tela_privacidade_lgpd()
     tela_seguranca_disponibilidade()
+    tela_backup_continuidade()
+    tela_gestao_fornecedores()
 
     # Implementação da orquestração da pipeline ETL.
     if st.button("🚀 Buscar e Processar Dados"):

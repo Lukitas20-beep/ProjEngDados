@@ -131,7 +131,7 @@ class BackupManager:
         if not uri:
             return False, "MONGO_URI não configurada.", None
 
-        limite = int(limite or os.getenv("MONGO_BACKUP_LIMIT", "10000"))
+        limite = int(limite or os.getenv("MONGO_BACKUP_DOCUMENT_LIMIT", os.getenv("MONGO_BACKUP_LIMIT", "10000")))
         backup_id = f"mongo_{self._timestamp()}"
         backup_path = self.backup_dir / backup_id
         backup_path.mkdir(parents=True, exist_ok=False)
