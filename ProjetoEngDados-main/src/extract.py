@@ -1,17 +1,16 @@
 import os
 import time
-
 import requests
 
-
 class Extract:
-    def __init__(self, timeout=None, max_retries=None):
-        # Endpoint público de editais do PNCP.
-        self.url = "https://pncp.gov.br/api/consulta/v1/editais"
+    def __init__(self, base_url=None, timeout=None, max_retries=None):
+        # Recebe a URL por injeção de dependência ou adota o fallback padrão do governo
+        self.url = base_url or "https://pncp.gov.br/api/pncp/v1/contratacoes/externas"
         self.timeout = int(timeout or os.getenv("REQUEST_TIMEOUT_SECONDS", "20"))
         self.max_retries = int(max_retries or os.getenv("REQUEST_MAX_RETRIES", "3"))
 
     def extract_contratacoes(self, dataInicial, dataFinal, codigoModalidade, uf, pagina, tamanhoPagina):
+        # Parâmetros exatos mapeados para o endpoint real do PNCP externo
         params = {
             "dataInicial": dataInicial,
             "dataFinal": dataFinal,
@@ -36,8 +35,11 @@ class Extract:
                     timeout=self.timeout,
                 )
                 response.raise_for_status()
+                
+                # A API real retorna os resultados diretamente ou encapsulados numa lista
                 return response.json()
-            except requests.Timeout as exc:
+                
+            except requests.Timeout:
                 ultima_excecao = f"Tempo limite excedido na tentativa {tentativa}."
             except requests.HTTPError as exc:
                 status = exc.response.status_code if exc.response is not None else "desconhecido"
@@ -47,9 +49,9 @@ class Extract:
             except requests.RequestException as exc:
                 ultima_excecao = f"Falha de conexão na tentativa {tentativa}: {exc}"
             except ValueError as exc:
-                return {"error": f"Resposta inválida da API PNCP: {exc}"}
+                return {"error": f"Resposta inválida (JSON corrompido): {exc}"}
 
             if tentativa < self.max_retries:
-                time.sleep(min(2 ** (tentativa - 1), 8))
+                time.sleep(min(2 ** (tentativa - 1), 5))
 
         return {"error": f"Não foi possível consultar o PNCP após {self.max_retries} tentativa(s). {ultima_excecao}"}
