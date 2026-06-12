@@ -19,7 +19,7 @@ for msg in st.session_state.messages:
         st.write(msg["content"])
 
 # Input do usuário
-if user_input := st.chat_input("Ex: Quais editais existem para o CNAE 56.10-1-00?"):
+if user_input := st.chat_input("Ex: Quais editais existem para o CNAE 62.09?"):
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.write(user_input)
@@ -32,26 +32,30 @@ if user_input := st.chat_input("Ex: Quais editais existem para o CNAE 56.10-1-00
             try:
                 print("🔄 Conectando ao Servidor MCP via Stdio...")
                 
-                # Importação sincrona
-                from mcp_server import consultar_editais_por_cnae
+                # Importação dinâmica do módulo corrigido
+                import mcpserver
                 
-                # Extrai e busca flexivel CNAE
+                # Extrai e busca flexível do CNAE numérico digitado
                 cnae_detectado = "".join(filter(str.isdigit, user_input))
                 
-                #Escrita extensa
+                # Se o usuário digitou por extenso, mapeia inteligência sem travar em blocos rígidos
                 if not cnae_detectado:
                     if "buffet" in user_input.lower() or "aliment" in user_input.lower():
-                        cnae_detectado = "56.10"
-                    elif "computador" in user_input.lower() or "informática" in user_input.lower() or "ti" in user_input.lower():
-                        cnae_detectado = "47.51"
+                        cnae_detectado = "5610"
+                    elif "computador" in user_input.lower() or "informática" in user_input.lower() or "ti" in user_input.lower() or "tecnologia" in user_input.lower():
+                        cnae_detectado = "6209"
                     else:
-                        cnae_detectado = "56.10" 
-
-                # Chamar
-                resposta_mcp = consultar_editais_por_cnae(cnae_detectado)
+                        cnae_detectado = "6209"
                 
-                # Groq Formata
-                prompt_final = f"Com base nos dados fornecidos pelo servidor MCP, monte uma resposta encorajadora e amigável orientando o Microempreendedor Individual (MEI):\n{resposta_mcp}"
+                # Trata strings parciais como "6209" para o tamanho correto
+                if len(cnae_detectado) == 4 and cnae_detectado.startswith("62"):
+                    cnae_detectado = "6209"
+
+                # Executa a ferramenta do servidor MCP
+                resposta_mcp = mcpserver.consultar_editais_por_cnae(cnae_detectado)
+                
+                # Envia o contexto estruturado para o modelo de IA formatar textualmente
+                prompt_final = f"Com base nos dados fornecidos pelo servidor MCP, monte uma resposta estruturada, encorajadora e amigável orientando o Microempreendedor Individual (MEI):\n{resposta_mcp}"
                 
                 try:
                     completion = groq_client.chat.completions.create(
@@ -61,8 +65,8 @@ if user_input := st.chat_input("Ex: Quais editais existem para o CNAE 56.10-1-00
                     )
                     resposta_final = completion.choices[0].message.content
                 except Exception as e_groq:
-                    # Salvaguarda local caso a cota do Groq estoure
-                    resposta_final = f"Olá! Com base na consulta em tempo real via **Servidor MCP**, localizei estas oportunidades:\n\n{resposta_mcp}\n\n💡 *Recomendação do Sistema:* Prepare os documentos habilitatórios no Portal do PNCP."
+                    # Salvaguarda local estável
+                    resposta_final = f"Olá! Com base na consulta do ecossistema, identifiquei estes registros:\n\n{resposta_mcp}\n\n💡 *Recomendação do Sistema:* Prepare os documentos habilitatórios no Portal do PNCP."
 
                 st.write(resposta_final)
                 st.session_state.messages.append({"role": "assistant", "content": resposta_final})
